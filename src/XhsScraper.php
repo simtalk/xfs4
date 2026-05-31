@@ -38,20 +38,48 @@ class XhsScraper
         }
         
         $command = sprintf(
-            'timeout 60 xvfb-run -a node %s %s %s %s 2>&1',
+            'node %s %s %s %s 2>&1',
             escapeshellarg($this->scraperPath),
             escapeshellarg($cookieFile),
             escapeshellarg($query),
             escapeshellarg($searchType)
         );
         
-        $output = shell_exec($command);
+        // Set timeout to prevent hanging
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+        
+        $process = proc_open($command, $descriptors, $pipes);
+        
+        if (!is_resource($process)) {
+            @unlink($cookieFile);
+            return ['success' => false, 'error' => '无法启动爬虫进程'];
+        }
+        
+        // Set timeout (60 seconds)
+        stream_set_timeout($pipes[1], 60);
+        
+        $output = '';
+        while (!feof($pipes[1])) {
+            $chunk = fread($pipes[1], 8192);
+            if ($chunk === false) break;
+            $output .= $chunk;
+        }
+        
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        
+        proc_close($process);
         
         // Clean up temp file
         @unlink($cookieFile);
         
-        if ($output === null) {
-            return ['success' => false, 'error' => '执行爬虫失败，请检查Node.js是否正确安装'];
+        if (empty(trim($output))) {
+            return ['success' => false, 'error' => '爬虫无输出，请检查Node.js和Playwright是否正确安装'];
         }
         
         // Filter out debug logs, keep only JSON output
@@ -62,7 +90,7 @@ class XhsScraper
             $lines = preg_split('/[\r\n]+/', $output);
             foreach ($lines as $line) {
                 $line = trim($line);
-                // Skip debug logs
+                // Skip debug logs (lines that start with these words)
                 if (preg_match('/^(Using|Error|Page|Fetching|Stealth|Navigating|Parsed|Extracted|Cookie)/', $line)) {
                     continue;
                 }
