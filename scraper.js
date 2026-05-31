@@ -81,67 +81,111 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
 
 async function fetchFromAPI(cookieStr, userId) {
     return new Promise((resolve) => {
-        // Try user info API
-        const options = {
-            hostname: 'edith.xiaohongshu.com',
-            path: `/api/sns/web/v1/user_profile_info?user_id=${userId}&source=note_user_profile&image_formats=jpg,webp,avif`,
-            method: 'GET',
-            headers: {
-                'Cookie': cookieStr,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': `https://www.xiaohongshu.com/user/profile/${userId}`,
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        // Try user info API - multiple endpoints
+        const endpoints = [
+            `/api/sns/web/v1/user_profile_info?user_id=${userId}&source=note_user_profile&image_formats=jpg,webp,avif`,
+            `/api/sns/web/v1/user_profile?user_id=${userId}&source=pc_web`
+        ];
+        
+        const tryEndpoint = (index) => {
+            if (index >= endpoints.length) {
+                resolve(null);
+                return;
             }
+            
+            const path = endpoints[index];
+            const options = {
+                hostname: 'www.xiaohongshu.com',
+                path: path,
+                method: 'GET',
+                headers: {
+                    'Cookie': cookieStr,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': `https://www.xiaohongshu.com/user/profile/${userId}`,
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Origin': 'https://www.xiaohongshu.com'
+                }
+            };
+            
+            console.log(`Trying API endpoint ${index + 1}: ${options.hostname}${path}`);
+            
+            const req = https.request(options, (res) => {
+                let data = '';
+                
+                console.log(`API Response status: ${res.statusCode}`);
+                
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                
+                res.on('end', () => {
+                    console.log(`API Response raw (first 500 chars): ${data.substring(0, 500)}`);
+                    
+                    try {
+                        // Skip if response is HTML or redirect
+                        if (data.trim().startsWith('<') || data.trim().startsWith('{') === false) {
+                            console.log('Response is not JSON, trying next endpoint');
+                            tryEndpoint(index + 1);
+                            return;
+                        }
+                        
+                        const json = JSON.parse(data);
+                        
+                        if (json.data?.user_info) {
+                            const info = json.data.user_info;
+                            resolve({
+                                nickname: info.nickname || '',
+                                userId: info.user_id || userId,
+                                avatar: info.basic_info?.avatar || info.avatar || '',
+                                description: info.description || '',
+                                followers: info.interaction_data?.follower_count || '',
+                                following: info.interaction_data?.following_count || '',
+                                liked: info.interaction_data?.liked_count || '',
+                                gender: info.gender || '',
+                                location: info.location || ''
+                            });
+                            return;
+                        }
+                        
+                        // Try alternative data structure
+                        if (json.data?.nickname) {
+                            resolve({
+                                nickname: json.data.nickname || '',
+                                userId: json.data.user_id || userId,
+                                avatar: json.data.avatar || json.data.basic_info?.avatar || '',
+                                description: json.data.description || '',
+                                followers: json.data.follower_count || '',
+                                following: json.data.following_count || '',
+                                liked: json.data.liked_count || '',
+                                gender: json.data.gender || '',
+                                location: json.data.location || ''
+                            });
+                            return;
+                        }
+                        
+                        tryEndpoint(index + 1);
+                    } catch (e) {
+                        console.log('API parse error:', e.message);
+                        tryEndpoint(index + 1);
+                    }
+                });
+            });
+            
+            req.on('error', (e) => {
+                console.log('API request error:', e.message);
+                tryEndpoint(index + 1);
+            });
+            
+            req.setTimeout(10000, () => {
+                req.destroy();
+                tryEndpoint(index + 1);
+            });
+            
+            req.end();
         };
         
-        const req = https.request(options, (res) => {
-            let data = '';
-            
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-            
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    console.log('API Response:', JSON.stringify(json).substring(0, 200));
-                    
-                    if (json.data?.user_info) {
-                        const info = json.data.user_info;
-                        resolve({
-                            nickname: info.nickname || '',
-                            userId: info.user_id || userId,
-                            avatar: info.basic_info?.avatar || info.avatar || '',
-                            description: info.description || '',
-                            followers: info.interaction_data?.follower_count || '',
-                            following: info.interaction_data?.following_count || '',
-                            liked: info.interaction_data?.liked_count || '',
-                            gender: info.gender || '',
-                            location: info.location || ''
-                        });
-                        return;
-                    }
-                    
-                    resolve(null);
-                } catch (e) {
-                    console.log('API parse error:', e.message);
-                    resolve(null);
-                }
-            });
-        });
-        
-        req.on('error', (e) => {
-            console.log('API request error:', e.message);
-            resolve(null);
-        });
-        
-        req.setTimeout(15000, () => {
-            req.destroy();
-            resolve(null);
-        });
-        
-        req.end();
+        tryEndpoint(0);
     });
 }
 
