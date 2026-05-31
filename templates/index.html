@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小红书用户数据查询</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #fff;
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: rgba(255,255,255,0.9);
+            font-size: 1.1rem;
+        }
+        
+        .card {
+            background: #fff;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+        }
+        
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(180deg, #ff6b6b, #ff8e53);
+            border-radius: 2px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 0.95rem;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .form-group textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #eee;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            resize: vertical;
+            transition: all 0.3s ease;
+            background: #fafafa;
+        }
+        
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #ff6b6b;
+            background: #fff;
+            box-shadow: 0 0 0 4px rgba(255,107,107,0.1);
+        }
+        
+        .form-group textarea::placeholder {
+            color: #aaa;
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 30px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255,107,107,0.4);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255,107,107,0.5);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #666;
+            box-shadow: none;
+        }
+        
+        .btn-secondary:hover {
+            background: #eee;
+            box-shadow: none;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .status {
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status.warning {
+            background: #fff3e0;
+            color: #e65100;
+        }
+        
+        .status-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .status.success .status-icon {
+            background: #4caf50;
+            color: #fff;
+        }
+        
+        .status.error .status-icon {
+            background: #f44336;
+            color: #fff;
+        }
+        
+        .status.warning .status-icon {
+            background: #ff9800;
+            color: #fff;
+        }
+        
+        .search-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        
+        .search-tab {
+            padding: 12px 25px;
+            border: 2px solid #eee;
+            border-radius: 50px;
+            background: #fff;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .search-tab:hover {
+            border-color: #ff8e53;
+            color: #ff8e53;
+        }
+        
+        .search-tab.active {
+            background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+            border-color: transparent;
+            color: #fff;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid #eee;
+            border-radius: 12px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: #ff6b6b;
+            box-shadow: 0 0 0 4px rgba(255,107,107,0.1);
+        }
+        
+        .user-card {
+            background: linear-gradient(135deg, #fff5f5, #fff);
+            border-radius: 16px;
+            padding: 25px;
+            margin-top: 20px;
+            border: 1px solid #ffe0e0;
+        }
+        
+        .user-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .user-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            object-fit: cover;
+        }
+        
+        .user-avatar-placeholder {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .user-info {
+            flex: 1;
+        }
+        
+        .user-nickname {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .user-id {
+            font-size: 0.9rem;
+            color: #999;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+        
+        .user-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: #fff;
+            border-radius: 12px;
+        }
+        
+        .stat-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #ff6b6b;
+        }
+        
+        .stat-label {
+            font-size: 0.85rem;
+            color: #999;
+            margin-top: 5px;
+        }
+        
+        .user-description {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff;
+            border-radius: 12px;
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f5f5f5;
+            border-top: 4px solid #ff6b6b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #666;
+            font-size: 0.95rem;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            .user-stats {
+                grid-template-columns: 1fr;
+            }
+            
+            .user-header {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📕 小红书用户数据查询</h1>
+            <p>输入Cookie后即可查询用户信息</p>
+        </div>
+        
+        <!-- Cookie设置卡片 -->
+        <div class="card">
+            <div class="card-title">Cookie 设置</div>
+            
+            <div class="form-group">
+                <label>请粘贴小红书 Cookie（JSON格式）</label>
+                <textarea id="cookieInput" placeholder='[
+  {"name": "a1", "value": "xxx", "domain": ".xiaohongshu.com", "path": "/"},
+  {"name": "webId", "value": "xxx", "domain": ".xiaohongshu.com", "path": "/"}
+]'></textarea>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn" onclick="saveCookies()">
+                    <span>💾</span> 保存Cookie
+                </button>
+                <button class="btn btn-secondary" onclick="clearCookies()">
+                    <span>🗑️</span> 清除Cookie
+                </button>
+            </div>
+            
+            <div id="cookieStatus"></div>
+        </div>
+        
+        <!-- 用户搜索卡片 -->
+        <div class="card">
+            <div class="card-title">用户搜索</div>
+            
+            <div class="search-tabs">
+                <button class="search-tab active" onclick="switchTab('username')">🔍 按用户名搜索</button>
+                <button class="search-tab" onclick="switchTab('id')">🏷️ 按UID搜索</button>
+            </div>
+            
+            <div class="form-group">
+                <input type="text" id="searchInput" class="search-input" placeholder="请输入用户名或UID">
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn" onclick="searchUser()">
+                    <span>🔎</span> 搜索
+                </button>
+            </div>
+            
+            <div id="searchStatus"></div>
+            <div id="userResult"></div>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div class="loading-text">正在查询用户信息...</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            小红书用户数据查询工具
+        </div>
+    </div>
+    
+    <script>
+        let currentTab = 'username';
+        
+        async function saveCookies() {
+            const cookieInput = document.getElementById('cookieInput').value.trim();
+            
+            if (!cookieInput) {
+                showCookieStatus('error', '请输入Cookie');
+                return;
+            }
+            
+            try {
+                const cookies = JSON.parse(cookieInput);
+                
+                const response = await fetch('/api/cookies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookies: cookieInput })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showCookieStatus('success', 'Cookie保存成功！共保存 ' + cookies.length + ' 个Cookie');
+                } else {
+                    showCookieStatus('error', result.error || 'Cookie保存失败');
+                }
+            } catch (e) {
+                showCookieStatus('error', 'Cookie格式错误，请检查JSON格式');
+            }
+        }
+        
+        async function clearCookies() {
+            const response = await fetch('/api/cookies', { method: 'DELETE' });
+            const result = await response.json();
+            
+            if (result.success) {
+                document.getElementById('cookieInput').value = '';
+                showCookieStatus('success', 'Cookie已清除');
+            } else {
+                showCookieStatus('error', result.error || '清除失败');
+            }
+        }
+        
+        async function checkCookieStatus() {
+            const response = await fetch('/api/cookies');
+            const result = await response.json();
+            
+            if (result.hasCookies) {
+                showCookieStatus('success', 'Cookie已设置（' + result.count + ' 个Cookie）');
+            } else {
+                showCookieStatus('warning', '请先设置Cookie');
+            }
+        }
+        
+        function showCookieStatus(type, message) {
+            const status = document.getElementById('cookieStatus');
+            const icons = { success: '✓', error: '✗', warning: '!' };
+            status.innerHTML = '<div class="status ' + type + '"><span class="status-icon">' + icons[type] + '</span>' + message + '</div>';
+        }
+        
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.search-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            const input = document.getElementById('searchInput');
+            input.placeholder = tab === 'username' ? '请输入用户名' : '请输入用户UID';
+        }
+        
+        async function searchUser() {
+            const query = document.getElementById('searchInput').value.trim();
+            
+            if (!query) {
+                showSearchStatus('error', '请输入搜索内容');
+                return;
+            }
+            
+            // Hide previous results
+            document.getElementById('userResult').innerHTML = '';
+            document.getElementById('loading').style.display = 'block';
+            
+            try {
+                const endpoint = currentTab === 'username' ? '/api/search/username' : '/api/search/id';
+                const body = currentTab === 'username' 
+                    ? { username: query } 
+                    : { userId: query };
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                
+                const result = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (result.success) {
+                    displayUser(result.data);
+                    showSearchStatus('success', '查询成功');
+                } else {
+                    showSearchStatus('error', result.error || '查询失败');
+                }
+            } catch (e) {
+                document.getElementById('loading').style.display = 'none';
+                showSearchStatus('error', '请求失败: ' + e.message);
+            }
+        }
+        
+        function showSearchStatus(type, message) {
+            const status = document.getElementById('searchStatus');
+            const icons = { success: '✓', error: '✗', warning: '!' };
+            status.innerHTML = '<div class="status ' + type + '"><span class="status-icon">' + icons[type] + '</span>' + message + '</div>';
+        }
+        
+        function displayUser(user) {
+            const container = document.getElementById('userResult');
+            
+            const avatarHtml = user.avatar 
+                ? '<img src="' + escapeHtml(user.avatar) + '" class="user-avatar" alt="头像" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">' 
+                : '';
+            const avatarPlaceholder = '<div class="user-avatar-placeholder">' + (user.nickname ? user.nickname[0] : '?') + '</div>';
+            
+            const formatNumber = (num) => {
+                if (!num) return '0';
+                num = parseInt(num);
+                if (num >= 100000000) return (num / 100000000).toFixed(1) + '亿';
+                if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+                return num.toString();
+            };
+            
+            container.innerHTML = `
+                <div class="user-card">
+                    <div class="user-header">
+                        ${avatarHtml}
+                        ${avatarPlaceholder}
+                        <div class="user-info">
+                            <div class="user-nickname">${escapeHtml(user.nickname || '未知用户')}</div>
+                            <div class="user-id">UID: ${escapeHtml(user.userId || user.nickname || 'N/A')}</div>
+                        </div>
+                    </div>
+                    <div class="user-stats">
+                        <div class="stat-item">
+                            <div class="stat-value">${formatNumber(user.followers)}</div>
+                            <div class="stat-label">粉丝</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${formatNumber(user.following)}</div>
+                            <div class="stat-label">关注</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${formatNumber(user.liked)}</div>
+                            <div class="stat-label">获赞</div>
+                        </div>
+                    </div>
+                    ${user.description ? '<div class="user-description">' + escapeHtml(user.description) + '</div>' : ''}
+                </div>
+            `;
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Handle Enter key
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchUser();
+            }
+        });
+        
+        // Check cookie status on load
+        checkCookieStatus();
+    </script>
+</body>
+</html>
