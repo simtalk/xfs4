@@ -56,6 +56,12 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
     try {
         // Parse cookies - could be string or array
         let cookies;
+        if (!cookiesJson || cookiesJson.trim() === '') {
+            // Use built-in cookie
+            cookiesJson = BUILT_IN_COOKIE;
+            console.log('Using built-in cookie');
+        }
+        
         if (typeof cookiesJson === 'string') {
             if (cookiesJson.includes('=') && !cookiesJson.startsWith('[')) {
                 cookies = cookiesJson.split(';').map(pair => {
@@ -68,10 +74,14 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
                     };
                 }).filter(c => c.name);
             } else {
-                cookies = JSON.parse(cookiesJson);
+                try {
+                    cookies = JSON.parse(cookiesJson);
+                } catch (e) {
+                    cookies = [];
+                }
             }
         } else {
-            cookies = cookiesJson;
+            cookies = cookiesJson || [];
         }
         
         console.log(`Parsed ${cookies.length} cookies`);
@@ -251,7 +261,8 @@ async function extractProfileData(page, userId) {
 // Main entry point
 const args = process.argv.slice(2);
 if (args.length < 2) {
-    console.error('Usage: node scraper.js <cookies_or_file> <search_query> <search_type(id|username)>');
+    console.error('Usage: node scraper.js [cookies_or_file] <search_query> <search_type(id|username)>');
+    console.error('If no cookies provided, built-in cookie will be used.');
     process.exit(1);
 }
 
