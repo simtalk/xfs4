@@ -301,26 +301,10 @@ async function extractUsersFromSearch(page, searchQuery) {
     try {
         const users = await page.evaluate(() => {
             const results = [];
+            const seenIds = new Set();
             
-            // Try to find user cards in search results
-            // Look for various selectors that might contain user info
-            const selectors = [
-                '[class*="user-card"]',
-                '[class*="author"]',
-                '[class*="search-user"]',
-                '[class*="feeds"] > div',
-                '.user-list .user-item'
-            ];
-            
-            let userCards = [];
-            for (const sel of selectors) {
-                userCards = document.querySelectorAll(sel);
-                if (userCards.length > 0) break;
-            }
-            
-            // Also try to extract from __INITIAL_STATE__ or scripts
+            // Try to find user data from __INITIAL_STATE__ or scripts first
             const scripts = document.querySelectorAll('script');
-            let userDataFromScript = null;
             
             for (const script of scripts) {
                 const text = script.textContent || '';
@@ -331,18 +315,17 @@ async function extractUsersFromSearch(page, searchQuery) {
                         try {
                             const state = JSON.parse(match[1]);
                             // Look for user notes in state
-                            if (state.noteList || state.feeds) {
-                                const items = state.noteList || state.feeds || [];
-                                for (const item of items.slice(0, 10)) {
-                                    const user = item.user || item.author;
-                                    if (user && user.nickname) {
-                                        results.push({
-                                            nickname: user.nickname || '',
-                                            userId: user.userId || user.id || '',
-                                            avatar: user.avatar || '',
-                                            redId: user.redId || ''
-                                        });
-                                    }
+                            const items = state.noteList || state.feeds?.notes || state.feeds || [];
+                            for (const item of items.slice(0, 15)) {
+                                const user = item.user || item.author || item;
+                                if (user && user.userId && !seenIds.has(user.userId)) {
+                                    seenIds.add(user.userId);
+                                    results.push({
+                                        nickname: user.nickname || user.name || '',
+                                        userId: user.userId || '',
+                                        avatar: user.avatar || '',
+                                        redId: user.redId || user.basicInfo?.redId || ''
+                                    });
                                 }
                             }
                         } catch (e) {}
@@ -350,35 +333,54 @@ async function extractUsersFromSearch(page, searchQuery) {
                 }
             }
             
-            // If no results from scripts, try DOM extraction
+            // Also try to find from page data attributes
             if (results.length === 0) {
-                // Look for image+name patterns
-                const items = document.querySelectorAll('[class*="item"], [class*="card"]');
-                for (const item of items) {
-                    if (results.length >= 10) break;
+                const cards = document.querySelectorAll('[data-user-id], [data-author-id]');
+                cards.forEach(card => {
+                    const userId = card.dataset.userId || card.dataset.authorId;
+                    const img = card.querySelector('img');
+                    const name = card.querySelector('[class*="name"], h3, h4, .nickname');
                     
-                    const img = item.querySelector('img');
-                    const name = item.querySelector('[class*="name"], [class*="nickname"], h3, h4');
-                    const link = item.querySelector('a[href*="/user/"]');
-                    
-                    if (img && name) {
-                        const href = link?.href || '';
-                        const userIdMatch = href.match(/\/user\/profile\/([a-f0-9]+)/i);
-                        
+                    if (userId && !seenIds.has(userId)) {
+                        seenIds.add(userId);
                         results.push({
-                            nickname: name.textContent?.trim() || '',
-                            userId: userIdMatch ? userIdMatch[1] : '',
-                            avatar: img.src || img.dataset.src || '',
+                            nickname: name?.textContent?.trim() || '',
+                            userId: userId,
+                            avatar: img?.src || img?.dataset.src || '',
                             redId: ''
                         });
                     }
-                }
+                });
+            }
+            
+            // Try to get from note card links
+            if (results.length < 3) {
+                const links = document.querySelectorAll('a[href*="/user/profile/"]');
+                links.forEach(link => {
+                    const href = link.href;
+                    const match = href.match(/\/user\/profile\/([a-f0-9]+)/i);
+                    if (match) {
+                        const userId = match[1];
+                        if (!seenIds.has(userId)) {
+                            seenIds.add(userId);
+                            const img = link.querySelector('img') || link.closest('[class*="card"]')?.querySelector('img');
+                            const name = link.querySelector('[class*="name"], h3, h4');
+                            
+                            results.push({
+                                nickname: name?.textContent?.trim() || '用户' + userId.substring(0, 6),
+                                userId: userId,
+                                avatar: img?.src || img?.dataset.src || '',
+                                redId: ''
+                            });
+                        }
+                    }
+                });
             }
             
             return results.slice(0, 10);
         });
         
-        console.log(`Found ${users.length} users in search results`);
+        console.log(`Found ${users.length} unique users in search results`);
         return users;
         
     } catch (error) {
@@ -387,7 +389,7 @@ async function extractUsersFromSearch(page, searchQuery) {
     }
 }
 
-// Extract single user from search results
+// Extract single user from search results - returns first result
 async function extractUserFromSearch(page, searchQuery) {
     const users = await extractUsersFromSearch(page, searchQuery);
     return users.length > 0 ? users[0] : { nickname: '', userId: '', avatar: '' };

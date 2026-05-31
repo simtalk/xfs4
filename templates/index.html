@@ -466,32 +466,32 @@
             }
             
             const usersHtml = users.map((user, index) => `
-                <div class="user-card" style="margin-bottom: 20px; cursor: pointer;" onclick="showUserDetail(${index})">
+                <div class="user-card" style="margin-bottom: 20px; cursor: pointer;" onclick="viewUserProfile('${escapeHtml(user.userId)}')">
                     <div class="user-header">
                         ${user.avatar 
-                            ? '<img src="' + escapeHtml(user.avatar) + '" class="user-avatar" alt="头像" style="width:60px;height:60px;">' 
+                            ? '<img src="' + escapeHtml(user.avatar) + '" class="user-avatar" alt="头像" style="width:60px;height:60px;border-radius:50%;object-fit:cover;">' 
                             : '<div class="user-avatar-placeholder" style="width:60px;height:60px;font-size:24px;">' + (user.nickname ? user.nickname[0] : '?') + '</div>'}
                         <div class="user-info">
                             <div class="user-nickname">${escapeHtml(user.nickname || '未知用户')}</div>
-                            <div class="user-id">${user.redId ? '小红书号: ' + escapeHtml(user.redId) : ''}</div>
+                            ${user.redId ? '<div class="user-id">小红书号: ' + escapeHtml(user.redId) + '</div>' : ''}
                         </div>
                     </div>
-                    <div style="color:#666;font-size:12px;margin-top:10px;">点击查看详情</div>
+                    <div style="color:#ff6b6b;font-size:12px;margin-top:10px;">点击查看完整资料</div>
                 </div>
             `).join('');
             
-            container.innerHTML = '<div style="margin-bottom:15px;font-weight:bold;">搜索到 ' + users.length + ' 个用户：</div>' + usersHtml;
+            container.innerHTML = '<div style="margin-bottom:15px;font-weight:bold;color:#333;">搜索到 ' + users.length + ' 个相关用户：</div>' + usersHtml;
             
             // Store users for later use
             window.searchResults = users;
         }
         
-        // Show single user detail
-        function showUserDetail(index) {
-            const user = window.searchResults[index];
-            if (user) {
-                displayUser(user);
-            }
+        // View user profile by ID - triggers a new search
+        function viewUserProfile(userId) {
+            if (!userId) return;
+            document.getElementById('searchInput').value = userId;
+            document.getElementById('searchTypeId').click();
+            searchUser();
         }
         
         function escapeHtml(text) {
