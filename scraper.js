@@ -6,22 +6,7 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         args: [
             '--disable-blink-features=AutomationControlled',
             '--disable-dev-shm-usage',
-            '--no-sandbox',
-            '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--disable-setuid-sandbox',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-translate',
-            '--disable-extensions',
-            '--disable-background-networking',
-            '--disable-default-apps',
-            '--disable-sync',
-            '--disable-hang-monitor',
-            '--disable-ipc-flooding-protection'
+            '--no-sandbox'
         ]
     });
     
@@ -29,7 +14,6 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         // Parse cookies - could be string or array
         let cookies;
         if (typeof cookiesJson === 'string') {
-            // If it's raw cookie string, parse it
             if (cookiesJson.includes('=') && !cookiesJson.startsWith('[')) {
                 cookies = cookiesJson.split(';').map(pair => {
                     const [name, ...valueParts] = pair.trim().split('=');
@@ -54,9 +38,7 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         
         const context = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport: { width: 1920, height: 1080 },
-            locale: 'zh-CN',
-            timezoneId: 'Asia/Shanghai'
+            viewport: { width: 1920, height: 1080 }
         });
         
         // Add cookies
@@ -69,57 +51,17 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
                     path: c.path || '/',
                     secure: true
                 }]);
-            } catch (e) {
-                // Skip
-            }
+            } catch (e) {}
         }
         
         const page = await context.newPage();
-        
-        // Inject anti-detection scripts before navigation
-        await page.addInitScript(() => {
-            // Remove webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => false,
-                configurable: true
-            });
-            
-            // Add permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            
-            // Mock plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-                configurable: true
-            });
-            
-            // Mock languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['zh-CN', 'zh', 'en-US', 'en'],
-                configurable: true
-            });
-            
-            // Mock chrome runtime
-            window.chrome = { runtime: {} };
-        });
-        
         const url = `https://www.xiaohongshu.com/user/profile/${userId || searchQuery}`;
         
         console.log(`Navigating to: ${url}`);
         
         try {
-            // First visit main page to establish session
-            await page.goto('https://www.xiaohongshu.com', { waitUntil: 'load', timeout: 30000 });
-            await page.waitForTimeout(2000);
-            
-            // Then navigate to profile
-            await page.goto(url, { waitUntil: 'load', timeout: 45000 });
-            await page.waitForTimeout(5000);
+            await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+            await page.waitForTimeout(3000);
         } catch (navError) {
             console.log(`Navigation error: ${navError.message}`);
         }
@@ -146,10 +88,6 @@ async function extractProfileData(page, userId) {
         let html = await page.content().catch(() => '');
         console.log(`Page HTML length: ${html.length}`);
         
-        // Check for captcha or verification page
-        const pageTitle = await page.title().catch(() => '');
-        console.log(`Page title: ${pageTitle}`);
-        
         const userData = await page.evaluate(() => {
             const data = {
                 nickname: '',
@@ -164,7 +102,7 @@ async function extractProfileData(page, userId) {
                 tags: []
             };
             
-            // Try SSR state first
+            // Try __INITIAL_SSR_STATE__
             try {
                 const scripts = document.querySelectorAll('script');
                 for (const script of scripts) {
@@ -205,14 +143,12 @@ async function extractProfileData(page, userId) {
                 } catch (e) {}
             }
             
-            // Get avatar from any img with avatar class or src
+            // Get avatar from img src
             if (!data.avatar) {
                 const imgs = document.querySelectorAll('img');
                 for (const img of imgs) {
                     const src = img.src || '';
-                    const alt = img.alt || '';
                     const className = img.className || '';
-                    
                     if (src.includes('avatar') || src.includes('sns-avatar') || className.includes('avatar')) {
                         data.avatar = src;
                         break;
@@ -220,9 +156,9 @@ async function extractProfileData(page, userId) {
                 }
             }
             
-            // Get nickname from any visible element
+            // Get nickname from visible elements
             if (!data.nickname) {
-                const nameEls = document.querySelectorAll('[class*="name"], h1, h2, [class*="nickname"], [class*="user-name"]');
+                const nameEls = document.querySelectorAll('[class*="name"], h1, h2');
                 for (const el of nameEls) {
                     const text = el.textContent?.trim() || '';
                     if (text && text.length > 0 && text.length < 50 && !text.includes('{{')) {
@@ -234,35 +170,20 @@ async function extractProfileData(page, userId) {
             
             // Get stats
             const allText = document.body.innerText || '';
-            const textParts = allText.split(/\s+/);
-            
-            for (let i = 0; i < textParts.length; i++) {
-                const part = textParts[i];
-                if (part.includes('粉丝') && i > 0 && !data.followers) {
-                    data.followers = textParts[i-1] || '';
-                }
-                if (part.includes('关注') && i > 0 && !data.following) {
-                    data.following = textParts[i-1] || '';
-                }
-                if ((part.includes('获赞') || part.includes('赞')) && i > 0 && !data.liked) {
-                    data.liked = textParts[i-1] || '';
-                }
+            const parts = allText.split(/\s+/);
+            for (let i = 0; i < parts.length; i++) {
+                if (parts[i].includes('粉丝') && i > 0) data.followers = parts[i-1];
+                if (parts[i].includes('关注') && i > 0) data.following = parts[i-1];
+                if (parts[i].includes('赞') && i > 0 && !data.liked) data.liked = parts[i-1];
             }
             
             return data;
         });
         
         userData.userId = userId;
-        
         console.log(`Extracted data:`, JSON.stringify(userData));
         
         if (!userData.nickname && !userData.avatar) {
-            // Save screenshot for debugging
-            try {
-                await page.screenshot({ path: '/www/wwwroot/www.zhiyiai.cn/ces/debug.png' });
-                console.log('Screenshot saved to /www/wwwroot/www.zhiyiai.cn/ces/debug.png');
-            } catch (e) {}
-            
             return { 
                 userId: userId,
                 error: '未获取到用户信息，可能需要登录或Cookie已过期',
@@ -273,10 +194,7 @@ async function extractProfileData(page, userId) {
         return userData;
         
     } catch (error) {
-        return { 
-            error: error.message,
-            userId: userId
-        };
+        return { error: error.message, userId: userId };
     }
 }
 
