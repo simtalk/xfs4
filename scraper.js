@@ -1,16 +1,39 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
+
+// Proxy configuration - UPDATE THESE VALUES
+const PROXY = {
+    host: process.env.PROXY_HOST || '',
+    port: process.env.PROXY_PORT || '',
+    username: process.env.PROXY_USER || '',
+    password: process.env.PROXY_PASS || ''
+};
 
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
-    const browser = await chromium.launch({ 
+    // Use proxy if configured
+    const launchOptions = { 
         headless: true,
         args: [
             '--disable-blink-features=AutomationControlled',
             '--disable-dev-shm-usage',
             '--no-sandbox'
         ]
-    });
+    };
+    
+    // Add proxy to launch args if proxy is configured
+    if (PROXY.host) {
+        launchOptions.proxy = {
+            server: `http://${PROXY.host}:${PROXY.port}`,
+            username: PROXY.username,
+            password: PROXY.password
+        };
+        console.log(`Using proxy: ${PROXY.host}:${PROXY.port}`);
+    }
+    
+    const browser = await chromium.launch(launchOptions);
     
     try {
         // Parse cookies - could be string or array
