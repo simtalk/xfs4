@@ -351,6 +351,7 @@ const cookiesJson = parseCookiesArg(cookiesArg);
 
 fetchUserData(cookiesJson, searchQuery, searchType)
     .then(result => {
+        // Only output the final JSON result, no debug logs
         console.log(JSON.stringify(result));
         process.exit(result.success ? 0 : 1);
     })

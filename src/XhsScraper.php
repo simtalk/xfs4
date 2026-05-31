@@ -54,6 +54,33 @@ class XhsScraper
             return ['success' => false, 'error' => '执行爬虫失败，请检查Node.js是否正确安装'];
         }
         
+        // Filter out debug logs, keep only JSON output
+        $lines = explode("\n", $output);
+        $jsonLines = [];
+        $inJson = false;
+        
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            // Skip empty lines and debug logs (lines that don't start with { or [)
+            if ($trimmed === '') continue;
+            if (preg_match('/^(Using|Error|Page|Fetching|Stealth|Navigating|Parsed|Extracted)/', $trimmed)) continue;
+            
+            // Check if this looks like JSON
+            if (strpos($trimmed, '{') === 0 || strpos($trimmed, '[') === 0) {
+                $jsonLines[] = $trimmed;
+                $inJson = true;
+            } elseif ($inJson) {
+                // Continue collecting JSON (might be multi-line due to escape sequences)
+                $jsonLines[] = $trimmed;
+            }
+        }
+        
+        $output = implode("\n", $jsonLines);
+        
+        if (empty(trim($output))) {
+            return ['success' => false, 'error' => '爬虫无有效输出'];
+        }
+        
         // Check if output starts with { or [
         $trimmed = trim($output);
         if (strpos($trimmed, '{') !== 0 && strpos($trimmed, '[') !== 0) {
