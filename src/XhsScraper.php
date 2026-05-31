@@ -5,10 +5,12 @@ namespace App;
 class XhsScraper
 {
     private string $scraperPath;
+    private string $dataPath;
     
-    public function __construct(string $scraperPath = null)
+    public function __construct(string $scraperPath = null, string $dataPath = null)
     {
         $this->scraperPath = $scraperPath ?? dirname(__DIR__) . '/scraper.js';
+        $this->dataPath = $dataPath ?? dirname(__DIR__) . '/data';
     }
     
     /**
@@ -20,32 +22,49 @@ class XhsScraper
             return ['success' => false, 'error' => '请先输入Cookie'];
         }
         
-        // Validate cookies JSON
-        $decodedCookies = json_decode($cookies, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return ['success' => false, 'error' => 'Cookie格式错误，请检查JSON格式'];
+        // Determine if cookies is raw string or JSON
+        $cookies = trim($cookies);
+        if (strpos($cookies, '[') === 0) {
+            // It's JSON format - use as is
+            $decodedCookies = json_decode($cookies, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return ['success' => false, 'error' => 'Cookie格式错误，请检查JSON格式'];
+            }
+        } else {
+            // It's raw cookie string - use as is, scraper.js will parse it
         }
         
         // Validate search type
         $searchType = in_array($type, ['username', 'id']) ? $type : 'username';
         
-        // Escape the cookies for command line
-        $escapedCookies = escapeshellarg($cookies);
-        $escapedQuery = escapeshellarg($query);
-        $escapedType = escapeshellarg($searchType);
+        // Build command - pass cookies as file to avoid escaping issues
+        $cookieFile = $this->dataPath . '/temp_cookies_' . uniqid() . '.txt';
+        file_put_contents($cookieFile, $cookies);
         
         $command = sprintf(
             'node %s %s %s %s 2>&1',
             escapeshellarg($this->scraperPath),
-            $escapedCookies,
-            $escapedQuery,
-            $escapedType
+            escapeshellarg($cookieFile),
+            escapeshellarg($query),
+            escapeshellarg($searchType)
         );
         
         $output = shell_exec($command);
         
+        // Clean up temp file
+        @unlink($cookieFile);
+        
         if ($output === null) {
             return ['success' => false, 'error' => '执行爬虫失败'];
+        }
+        
+        // Check if output starts with { or [
+        $trimmed = trim($output);
+        if (strpos($trimmed, '{') !== 0 && strpos($trimmed, '[') !== 0) {
+            return [
+                'success' => false, 
+                'error' => '爬虫执行失败: ' . substr($output, 0, 500)
+            ];
         }
         
         $result = json_decode($output, true);
@@ -53,7 +72,7 @@ class XhsScraper
         if (json_last_error() !== JSON_ERROR_NONE) {
             return [
                 'success' => false, 
-                'error' => '解析结果失败: ' . ($output ?: '未知错误')
+                'error' => '解析结果失败: ' . substr($output, 0, 500)
             ];
         }
         
@@ -76,7 +95,7 @@ class XhsScraper
             $session = [
                 'cookies' => $data,
                 'created_at' => time(),
-                'expires_at' => time() + (7 * 24 * 60 * 60) // 7 days
+                'expires_at' => time() + (7 * 24 * 60 * 60)
             ];
             
             return file_put_contents($sessionFile, json_encode($session, JSON_UNESCAPED_UNICODE)) !== false;
@@ -103,7 +122,6 @@ class XhsScraper
             return null;
         }
         
-        // Check expiration
         if (isset($session['expires_at']) && $session['expires_at'] < time()) {
             unlink($sessionFile);
             return null;
@@ -128,7 +146,7 @@ class XhsScraper
     
     private function getSessionFile(): string
     {
-        $dir = dirname(__DIR__) . '/data';
+        $dir = $this->dataPath;
         
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);

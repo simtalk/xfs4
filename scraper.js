@@ -1,8 +1,6 @@
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
-const http = require('http');
 
 // Proxy configuration - UPDATE THESE VALUES
 const PROXY = {
@@ -11,6 +9,15 @@ const PROXY = {
     username: process.env.PROXY_USER || '',
     password: process.env.PROXY_PASS || ''
 };
+
+// Read cookies from file if path is passed as argument
+function parseCookiesArg(cookiesArg) {
+    // If the argument is a file path, read from file
+    if (fs.existsSync(cookiesArg)) {
+        return fs.readFileSync(cookiesArg, 'utf-8');
+    }
+    return cookiesArg;
+}
 
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
     // Use proxy if configured
@@ -233,11 +240,15 @@ async function extractProfileData(page, userId) {
 // Main entry point
 const args = process.argv.slice(2);
 if (args.length < 3) {
-    console.error('Usage: node scraper.js <cookies_json> <search_query> <search_type(id|username)>');
+    console.error('Usage: node scraper.js <cookies_json_or_file> <search_query> <search_type(id|username)>');
     process.exit(1);
 }
 
-const [cookiesJson, searchQuery, searchType] = args;
+// Parse cookies - could be raw string, JSON, or file path
+const cookiesArg = args[0];
+const cookiesJson = parseCookiesArg(cookiesArg);
+const searchQuery = args[1];
+const searchType = args[2];
 
 fetchUserData(cookiesJson, searchQuery, searchType)
     .then(result => {
