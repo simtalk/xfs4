@@ -1,4 +1,6 @@
 const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
 
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
     const browser = await chromium.launch({ 
@@ -40,6 +42,13 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             viewport: { width: 1920, height: 1080 }
         });
+        
+        // Load and inject stealth.min.js for anti-detection
+        const stealthPath = path.join(__dirname, 'stealth.min.js');
+        if (fs.existsSync(stealthPath)) {
+            await context.addInitScript({ path: stealthPath }).catch(() => {});
+            console.log('Stealth mode enabled');
+        }
         
         // Add cookies
         for (const c of cookies) {
