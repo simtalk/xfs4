@@ -7,7 +7,8 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         args: [
             '--disable-blink-features=AutomationControlled',
             '--disable-dev-shm-usage',
-            '--no-sandbox'
+            '--no-sandbox',
+            '--disable-web-security'
         ]
     });
     
@@ -23,31 +24,27 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         
         console.log(`Fetching user data for: ${userId || searchQuery}`);
         
-        // Try API first
-        const apiData = await fetchFromAPI(cookieStr, userId);
-        
-        if (apiData && apiData.nickname) {
-            return {
-                success: true,
-                data: apiData
-            };
-        }
-        
-        // Fallback to page scraping
+        // Create context with cookies
         const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport: { width: 1920, height: 1080 }
         });
         
-        // Add cookies to context
+        // Add cookies to context - try multiple domains
+        const domains = ['.xiaohongshu.com', 'xiaohongshu.com', 'www.xiaohongshu.com'];
+        
         for (const c of cookies) {
-            try {
-                await context.addCookies([{
-                    name: c.name,
-                    value: c.value,
-                    domain: c.domain || '.xiaohongshu.com',
-                    path: c.path || '/'
-                }]);
-            } catch (e) {}
+            for (const domain of domains) {
+                try {
+                    await context.addCookies([{
+                        name: c.name,
+                        value: c.value,
+                        domain: c.domain || domain,
+                        path: c.path || '/',
+                        secure: true
+                    }]);
+                } catch (e) {}
+            }
         }
         
         const page = await context.newPage();
@@ -56,14 +53,27 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         console.log(`Navigating to: ${url}`);
         
         try {
-            await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-            await page.waitForTimeout(8000);
+            await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+            await page.waitForTimeout(10000);
         } catch (navError) {
             console.log(`Navigation error: ${navError.message}`);
         }
         
+        // Get cookies from browser context to verify
+        const browserCookies = await context.cookies();
+        console.log(`Browser has ${browserCookies.length} cookies`);
+        
+        // Try to extract data
         const userData = await extractProfileData(page, userId || searchQuery);
         await browser.close();
+        
+        // If we got avatar but no nickname, try API with browser cookies
+        if (!userData.nickname && userData.avatar) {
+            const apiData = await fetchFromAPI(browserCookies.map(c => `${c.name}=${c.value}`).join('; '), userId);
+            if (apiData && apiData.nickname) {
+                return { success: true, data: apiData };
+            }
+        }
         
         return {
             success: true,
