@@ -22,7 +22,12 @@ class XhsScraper
         $searchType = in_array($type, ['username', 'id']) ? $type : 'username';
         
         // Build command - pass cookies as file to avoid escaping issues
-        $cookieFile = $this->dataPath . '/temp_cookies_' . uniqid() . '.txt';
+        $dataDir = $this->dataPath;
+        if (!is_dir($dataDir)) {
+            mkdir($dataDir, 0755, true);
+        }
+        
+        $cookieFile = $dataDir . '/temp_cookies_' . uniqid() . '.txt';
         
         // If cookies is USE_BUILT_IN, write empty file (scraper will use built-in)
         // Otherwise write the cookies to file
@@ -40,13 +45,41 @@ class XhsScraper
             escapeshellarg($searchType)
         );
         
-        $output = shell_exec($command);
+        // Set timeout to prevent hanging
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+        
+        $process = proc_open($command, $descriptors, $pipes);
+        
+        if (!is_resource($process)) {
+            @unlink($cookieFile);
+            return ['success' => false, 'error' => '无法启动爬虫进程'];
+        }
+        
+        // Set timeout (60 seconds)
+        stream_set_timeout($pipes[1], 60);
+        
+        $output = '';
+        while (!feof($pipes[1])) {
+            $chunk = fread($pipes[1], 8192);
+            if ($chunk === false) break;
+            $output .= $chunk;
+        }
+        
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        
+        proc_close($process);
         
         // Clean up temp file
         @unlink($cookieFile);
         
-        if ($output === null) {
-            return ['success' => false, 'error' => '执行爬虫失败'];
+        if (empty(trim($output))) {
+            return ['success' => false, 'error' => '爬虫无输出，请检查Node.js和Playwright是否正确安装'];
         }
         
         // Check if output starts with { or [
