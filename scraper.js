@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const https = require('https');
 
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
     const browser = await chromium.launch({ 
@@ -10,79 +11,58 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         ]
     });
     
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        viewport: { width: 1920, height: 1080 }
-    });
-    
     try {
         // Parse cookies
         const cookies = typeof cookiesJson === 'string' ? JSON.parse(cookiesJson) : cookiesJson;
         
-        // Set cookies for the context
+        // Build cookie string for API
+        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+        
+        // Build user ID from search query
+        const userId = searchType === 'id' ? searchQuery : null;
+        
+        console.log(`Fetching user data for: ${userId || searchQuery}`);
+        
+        // Try API first
+        const apiData = await fetchFromAPI(cookieStr, userId);
+        
+        if (apiData && apiData.nickname) {
+            return {
+                success: true,
+                data: apiData
+            };
+        }
+        
+        // Fallback to page scraping
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        });
+        
+        // Add cookies to context
         for (const c of cookies) {
             try {
                 await context.addCookies([{
                     name: c.name,
                     value: c.value,
                     domain: c.domain || '.xiaohongshu.com',
-                    path: c.path || '/',
-                    secure: c.secure !== false,
-                    httpOnly: c.httpOnly || false,
-                    sameSite: c.sameSite || 'Lax'
+                    path: c.path || '/'
                 }]);
-            } catch (e) {
-                // Skip invalid cookies
-            }
+            } catch (e) {}
         }
         
         const page = await context.newPage();
-        
-        // Determine URL based on search type
-        let url;
-        if (searchType === 'id') {
-            url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
-        } else {
-            url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
-        }
+        const url = `https://www.xiaohongshu.com/user/profile/${userId || searchQuery}`;
         
         console.log(`Navigating to: ${url}`);
         
-        // Navigate with better error handling
         try {
-            await page.goto(url, { 
-                waitUntil: 'load',
-                timeout: 30000 
-            });
-            
-            // Wait for page to stabilize
-            await page.waitForTimeout(5000);
-            
-            // Try to wait for any dynamic content
-            try {
-                await page.waitForFunction(() => {
-                    return document.querySelector('#detail-app') !== null || 
-                           document.querySelector('.user-detail') !== null ||
-                           document.querySelector('[data-v-sm]') !== null ||
-                           document.body.innerHTML.length > 10000;
-                }, { timeout: 10000 }).catch(() => {});
-            } catch (e) {}
-            
+            await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+            await page.waitForTimeout(8000);
         } catch (navError) {
             console.log(`Navigation error: ${navError.message}`);
         }
         
-        // Wait additional time for JS to render
-        await page.waitForTimeout(3000);
-        
-        let userData = {};
-        
-        if (searchType === 'id') {
-            userData = await extractProfileData(page, searchQuery);
-        } else {
-            userData = await extractFromSearchResults(page, searchQuery);
-        }
-        
+        const userData = await extractProfileData(page, userId || searchQuery);
         await browser.close();
         
         return {
@@ -91,7 +71,7 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         };
         
     } catch (error) {
-        await browser.close();
+        await browser.close().catch(() => {});
         return {
             success: false,
             error: error.message
@@ -99,19 +79,77 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
     }
 }
 
+async function fetchFromAPI(cookieStr, userId) {
+    return new Promise((resolve) => {
+        // Try user info API
+        const options = {
+            hostname: 'edith.xiaohongshu.com',
+            path: `/api/sns/web/v1/user_profile_info?user_id=${userId}&source=note_user_profile&image_formats=jpg,webp,avif`,
+            method: 'GET',
+            headers: {
+                'Cookie': cookieStr,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': `https://www.xiaohongshu.com/user/profile/${userId}`,
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+            }
+        };
+        
+        const req = https.request(options, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    console.log('API Response:', JSON.stringify(json).substring(0, 200));
+                    
+                    if (json.data?.user_info) {
+                        const info = json.data.user_info;
+                        resolve({
+                            nickname: info.nickname || '',
+                            userId: info.user_id || userId,
+                            avatar: info.basic_info?.avatar || info.avatar || '',
+                            description: info.description || '',
+                            followers: info.interaction_data?.follower_count || '',
+                            following: info.interaction_data?.following_count || '',
+                            liked: info.interaction_data?.liked_count || '',
+                            gender: info.gender || '',
+                            location: info.location || ''
+                        });
+                        return;
+                    }
+                    
+                    resolve(null);
+                } catch (e) {
+                    console.log('API parse error:', e.message);
+                    resolve(null);
+                }
+            });
+        });
+        
+        req.on('error', (e) => {
+            console.log('API request error:', e.message);
+            resolve(null);
+        });
+        
+        req.setTimeout(15000, () => {
+            req.destroy();
+            resolve(null);
+        });
+        
+        req.end();
+    });
+}
+
 async function extractProfileData(page, userId) {
     try {
-        // Check for page content
-        let html = '';
-        try {
-            html = await page.content();
-        } catch (e) {
-            console.log('Could not get page content');
-        }
-        
+        let html = await page.content().catch(() => '');
         console.log(`Page HTML length: ${html.length}`);
         
-        // Extract user information using JavaScript with better error handling
         const userData = await page.evaluate(() => {
             const data = {
                 nickname: '',
@@ -131,7 +169,7 @@ async function extractProfileData(page, userId) {
                 const scripts = document.querySelectorAll('script');
                 for (const script of scripts) {
                     const text = script.textContent || '';
-                    if (text.includes('nickname') || text.includes('user_info') || text.includes('UserPage')) {
+                    if (text.includes('nickname') || text.includes('user_info')) {
                         try {
                             const match = text.match(/window\.__INITIAL_SSR_STATE__\s*=\s*(\{.*?\});/s);
                             if (match && match[1]) {
@@ -169,51 +207,7 @@ async function extractProfileData(page, userId) {
                 } catch (e) {}
             }
             
-            // Method 3: Try data from script tags
-            if (!data.nickname) {
-                try {
-                    const allScripts = document.querySelectorAll('script[type="application/json"]');
-                    for (const script of allScripts) {
-                        try {
-                            const jsonData = JSON.parse(script.textContent);
-                            if (jsonData.nickname || jsonData.author?.nickname) {
-                                data.nickname = jsonData.nickname || jsonData.author?.nickname || '';
-                                data.avatar = jsonData.avatar || jsonData.author?.avatar || '';
-                                data.userId = jsonData.userId || jsonData.user_id || '';
-                                break;
-                            }
-                        } catch (e) {}
-                    }
-                } catch (e) {}
-            }
-            
-            // Method 4: Try React component data
-            if (!data.nickname) {
-                const reactRoot = document.querySelector('#detail-app, [id*="app"], [data-v-sm]');
-                if (reactRoot) {
-                    // Check for data in parent elements
-                    let el = reactRoot;
-                    while (el && el !== document.body) {
-                        const parent = el.parentElement;
-                        if (parent) {
-                            const dataAttr = parent.getAttribute('data-props') || 
-                                           parent.getAttribute('data-state') ||
-                                           parent.getAttribute('data-init');
-                            if (dataAttr) {
-                                try {
-                                    const parsed = JSON.parse(dataAttr);
-                                    data.nickname = parsed.nickname || parsed.author?.nickname || '';
-                                    data.avatar = parsed.avatar || parsed.author?.avatar || '';
-                                    if (data.nickname) break;
-                                } catch (e) {}
-                            }
-                        }
-                        el = parent;
-                    }
-                }
-            }
-            
-            // Method 5: DOM selectors for rendered content
+            // Method 3: DOM selectors for rendered content
             if (!data.nickname) {
                 const nameSelectors = [
                     '.user-name',
@@ -221,12 +215,9 @@ async function extractProfileData(page, userId) {
                     '.author-name',
                     '.nickname',
                     'h1.title',
-                    '.user-info-name',
                     '[class*="user-name"]',
                     '[class*="author-name"]',
-                    '[class*="nickname"]',
-                    'div[class*="name"] span',
-                    '.info-name'
+                    '[class*="nickname"]'
                 ];
                 
                 for (const selector of nameSelectors) {
@@ -243,21 +234,19 @@ async function extractProfileData(page, userId) {
                 }
             }
             
-            // Method 6: Get avatar from various sources
+            // Method 4: Get avatar from various sources
             if (!data.avatar) {
                 const avatarSelectors = [
                     'img[class*="avatar"]',
                     '.user-avatar img',
                     '.author-avatar img',
-                    '.profile-avatar img',
-                    'img[alt*="头像"]',
                     '[class*="avatar"] img'
                 ];
                 
                 for (const selector of avatarSelectors) {
                     try {
                         const el = document.querySelector(selector);
-                        if (el && el.src && !el.src.includes('data:') && !el.src.includes('placeholder')) {
+                        if (el && el.src && !el.src.includes('data:')) {
                             data.avatar = el.src;
                             break;
                         }
@@ -265,16 +254,8 @@ async function extractProfileData(page, userId) {
                 }
             }
             
-            // Method 7: Get from meta tags
-            if (!data.avatar) {
-                const ogImage = document.querySelector('meta[property="og:image"]');
-                if (ogImage) {
-                    data.avatar = ogImage.content;
-                }
-            }
-            
-            // Method 8: Stats from DOM
-            const statsNodes = document.querySelectorAll('[class*="count"], [class*="num"], [class*="stat"]');
+            // Method 5: Stats from DOM
+            const statsNodes = document.querySelectorAll('[class*="count"], [class*="num"]');
             for (const node of statsNodes) {
                 const text = node.textContent?.trim() || '';
                 if (text && !text.includes('{{')) {
@@ -282,27 +263,11 @@ async function extractProfileData(page, userId) {
                         data.followers = text.replace(/粉丝/g, '').trim();
                     } else if (text.includes('关注') && !data.following) {
                         data.following = text.replace(/关注/g, '').trim();
-                    } else if ((text.includes('获赞') || text.includes('点赞')) && !data.liked) {
-                        data.liked = text.replace(/获赞/g, '').replace(/点赞/g, '').trim();
+                    } else if (text.includes('获赞') && !data.liked) {
+                        data.liked = text.replace(/获赞/g, '').trim();
                     }
                 }
             }
-            
-            // Get numbers from specific spans
-            const numberSpans = document.querySelectorAll('span[class*="number"], span[class*="count"]');
-            numberSpans.forEach(span => {
-                const text = span.textContent?.trim() || '';
-                const parent = span.closest('[class*="stat"]') || span.parentElement;
-                const parentText = parent?.textContent?.trim() || '';
-                
-                if (parentText.includes('粉丝') && !data.followers) {
-                    data.followers = text;
-                } else if (parentText.includes('关注') && !data.following) {
-                    data.following = text;
-                } else if (parentText.includes('赞') && !data.liked) {
-                    data.liked = text;
-                }
-            });
             
             return data;
         });
@@ -311,7 +276,6 @@ async function extractProfileData(page, userId) {
         
         console.log(`Extracted data:`, JSON.stringify(userData));
         
-        // If still no data, return error message
         if (!userData.nickname && !userData.avatar) {
             return { 
                 userId: userId,
@@ -327,34 +291,6 @@ async function extractProfileData(page, userId) {
             error: error.message,
             userId: userId
         };
-    }
-}
-
-async function extractFromSearchResults(page, username) {
-    try {
-        await page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
-        
-        const userData = await page.evaluate((searchName) => {
-            const userCards = document.querySelectorAll('[class*="user-card"], [class*="search-user"], [class*="author"]');
-            
-            for (const card of userCards) {
-                const nameEl = card.querySelector('[class*="name"], [class*="nickname"]');
-                if (nameEl && nameEl.textContent.includes('{{') === false) {
-                    return {
-                        nickname: nameEl.textContent.trim(),
-                        avatar: card.querySelector('img')?.src || '',
-                        description: card.querySelector('[class*="desc"]')?.textContent || ''
-                    };
-                }
-            }
-            
-            return { error: '用户未找到: ' + searchName };
-        }, username);
-        
-        return userData;
-        
-    } catch (error) {
-        return { error: error.message };
     }
 }
 
