@@ -68,42 +68,6 @@
             border-radius: 2px;
         }
         
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            font-size: 0.95rem;
-            color: #666;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-        
-        .form-group textarea {
-            width: 100%;
-            min-height: 150px;
-            padding: 15px;
-            border: 2px solid #eee;
-            border-radius: 12px;
-            font-size: 0.9rem;
-            font-family: 'Monaco', 'Consolas', monospace;
-            resize: vertical;
-            transition: all 0.3s ease;
-            background: #fafafa;
-        }
-        
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #ff6b6b;
-            background: #fff;
-            box-shadow: 0 0 0 4px rgba(255,107,107,0.1);
-        }
-        
-        .form-group textarea::placeholder {
-            color: #aaa;
-        }
-        
         .btn {
             display: inline-flex;
             align-items: center;
@@ -134,23 +98,6 @@
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
-        }
-        
-        .btn-secondary {
-            background: #f5f5f5;
-            color: #666;
-            box-shadow: none;
-        }
-        
-        .btn-secondary:hover {
-            background: #eee;
-            box-shadow: none;
-        }
-        
-        .btn-group {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
         }
         
         .status {
@@ -314,7 +261,7 @@
         }
         
         .stat-value {
-            font-size: 1.3rem;
+            font-size: 1.5rem;
             font-weight: 700;
             color: #ff6b6b;
         }
@@ -331,34 +278,31 @@
             background: #fff;
             border-radius: 12px;
             color: #666;
-            font-size: 0.95rem;
             line-height: 1.6;
         }
         
         .loading {
             display: none;
             text-align: center;
-            padding: 40px;
+            padding: 30px;
         }
         
         .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid #f5f5f5;
-            border-top: 4px solid #ff6b6b;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #ffe0e0;
+            border-top-color: #ff6b6b;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
         }
         
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
         
         .loading-text {
-            color: #666;
-            font-size: 0.95rem;
+            color: #999;
         }
         
         .footer {
@@ -367,75 +311,27 @@
             color: rgba(255,255,255,0.8);
             font-size: 0.9rem;
         }
-        
-        @media (max-width: 600px) {
-            .header h1 {
-                font-size: 1.8rem;
-            }
-            
-            .card {
-                padding: 20px;
-            }
-            
-            .user-stats {
-                grid-template-columns: 1fr;
-            }
-            
-            .user-header {
-                flex-direction: column;
-                text-align: center;
-            }
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>📕 小红书用户数据查询</h1>
-            <p>输入Cookie后即可查询用户信息</p>
+            <p>快速查询小红书用户信息</p>
         </div>
         
-        <!-- Cookie设置卡片 -->
-        <div class="card">
-            <div class="card-title">Cookie 设置</div>
-            
-            <div class="form-group">
-                <label>请粘贴小红书 Cookie（JSON格式）</label>
-                <textarea id="cookieInput" placeholder='[
-  {"name": "a1", "value": "xxx", "domain": ".xiaohongshu.com", "path": "/"},
-  {"name": "webId", "value": "xxx", "domain": ".xiaohongshu.com", "path": "/"}
-]'></textarea>
-            </div>
-            
-            <div class="btn-group">
-                <button class="btn" onclick="saveCookies()">
-                    <span>💾</span> 保存Cookie
-                </button>
-                <button class="btn btn-secondary" onclick="clearCookies()">
-                    <span>🗑️</span> 清除Cookie
-                </button>
-            </div>
-            
-            <div id="cookieStatus"></div>
-        </div>
-        
-        <!-- 用户搜索卡片 -->
         <div class="card">
             <div class="card-title">用户搜索</div>
             
             <div class="search-tabs">
-                <button class="search-tab active" onclick="switchTab('username')">🔍 按用户名搜索</button>
-                <button class="search-tab" onclick="switchTab('id')">🏷️ 按UID搜索</button>
+                <button class="search-tab active" onclick="switchTab('username', event)">🔍 按用户名搜索</button>
+                <button class="search-tab" onclick="switchTab('id', event)">🏷️ 按UID搜索</button>
             </div>
             
-            <div class="form-group">
-                <input type="text" id="searchInput" class="search-input" placeholder="请输入用户名或UID">
-            </div>
+            <input type="text" class="search-input" id="searchInput" placeholder="请输入用户UID" />
             
-            <div class="btn-group">
-                <button class="btn" onclick="searchUser()">
-                    <span>🔎</span> 搜索
-                </button>
+            <div style="margin-top: 20px;">
+                <button class="btn" onclick="searchUser()">🔎 搜索</button>
             </div>
             
             <div id="searchStatus"></div>
@@ -452,67 +348,9 @@
     </div>
     
     <script>
-        let currentTab = 'username';
+        let currentTab = 'id';
         
-        async function saveCookies() {
-            const cookieInput = document.getElementById('cookieInput').value.trim();
-            
-            if (!cookieInput) {
-                showCookieStatus('error', '请输入Cookie');
-                return;
-            }
-            
-            try {
-                const cookies = JSON.parse(cookieInput);
-                
-                const response = await fetch('/api/cookies', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cookies: cookieInput })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showCookieStatus('success', 'Cookie保存成功！共保存 ' + cookies.length + ' 个Cookie');
-                } else {
-                    showCookieStatus('error', result.error || 'Cookie保存失败');
-                }
-            } catch (e) {
-                showCookieStatus('error', 'Cookie格式错误，请检查JSON格式');
-            }
-        }
-        
-        async function clearCookies() {
-            const response = await fetch('/api/cookies', { method: 'DELETE' });
-            const result = await response.json();
-            
-            if (result.success) {
-                document.getElementById('cookieInput').value = '';
-                showCookieStatus('success', 'Cookie已清除');
-            } else {
-                showCookieStatus('error', result.error || '清除失败');
-            }
-        }
-        
-        async function checkCookieStatus() {
-            const response = await fetch('/api/cookies');
-            const result = await response.json();
-            
-            if (result.hasCookies) {
-                showCookieStatus('success', 'Cookie已设置（' + result.count + ' 个Cookie）');
-            } else {
-                showCookieStatus('warning', '请先设置Cookie');
-            }
-        }
-        
-        function showCookieStatus(type, message) {
-            const status = document.getElementById('cookieStatus');
-            const icons = { success: '✓', error: '✗', warning: '!' };
-            status.innerHTML = '<div class="status ' + type + '"><span class="status-icon">' + icons[type] + '</span>' + message + '</div>';
-        }
-        
-        function switchTab(tab) {
+        function switchTab(tab, event) {
             currentTab = tab;
             document.querySelectorAll('.search-tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
@@ -529,7 +367,6 @@
                 return;
             }
             
-            // Hide previous results
             document.getElementById('userResult').innerHTML = '';
             document.getElementById('loading').style.display = 'block';
             
@@ -619,15 +456,11 @@
             return div.innerHTML;
         }
         
-        // Handle Enter key
         document.getElementById('searchInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 searchUser();
             }
         });
-        
-        // Check cookie status on load
-        checkCookieStatus();
     </script>
 </body>
 </html>
