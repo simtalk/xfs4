@@ -8,7 +8,20 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
             '--disable-dev-shm-usage',
             '--no-sandbox',
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-setuid-sandbox',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-translate',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--disable-hang-monitor',
+            '--disable-ipc-flooding-protection'
         ]
     });
     
@@ -62,11 +75,49 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         }
         
         const page = await context.newPage();
+        
+        // Inject anti-detection scripts before navigation
+        await page.addInitScript(() => {
+            // Remove webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+                configurable: true
+            });
+            
+            // Add permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            
+            // Mock plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+                configurable: true
+            });
+            
+            // Mock languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['zh-CN', 'zh', 'en-US', 'en'],
+                configurable: true
+            });
+            
+            // Mock chrome runtime
+            window.chrome = { runtime: {} };
+        });
+        
         const url = `https://www.xiaohongshu.com/user/profile/${userId || searchQuery}`;
         
         console.log(`Navigating to: ${url}`);
         
         try {
+            // First visit main page to establish session
+            await page.goto('https://www.xiaohongshu.com', { waitUntil: 'load', timeout: 30000 });
+            await page.waitForTimeout(2000);
+            
+            // Then navigate to profile
             await page.goto(url, { waitUntil: 'load', timeout: 45000 });
             await page.waitForTimeout(5000);
         } catch (navError) {
