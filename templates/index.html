@@ -427,7 +427,7 @@
                         ${avatarPlaceholder}
                         <div class="user-info">
                             <div class="user-nickname">${escapeHtml(user.nickname || '未知用户')}</div>
-                            <div class="user-id">UID: ${escapeHtml(user.userId || user.nickname || 'N/A')}</div>
+                            <div class="user-id">${user.redId ? '小红书号: ' + escapeHtml(user.redId) : 'UID: ' + escapeHtml(user.userId || user.nickname || 'N/A')}</div>
                         </div>
                     </div>
                     <div class="user-stats">

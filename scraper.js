@@ -86,8 +86,7 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         
         console.log(`Parsed ${cookies.length} cookies`);
         
-        const userId = searchType === 'id' ? searchQuery : null;
-        console.log(`Fetching user data for: ${userId || searchQuery}`);
+        console.log(`Fetching user data for: ${searchQuery} (type: ${searchType})`);
         
         const context = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -115,7 +114,15 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         }
         
         const page = await context.newPage();
-        const url = `https://www.xiaohongshu.com/user/profile/${userId || searchQuery}`;
+        
+        let url;
+        if (searchType === 'id') {
+            // Direct profile URL by user ID
+            url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
+        } else {
+            // Search by 小红书号/username - use search page
+            url = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(searchQuery)}&type=51`;
+        }
         
         console.log(`Navigating to: ${url}`);
         
@@ -126,7 +133,13 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
             console.log(`Navigation error: ${navError.message}`);
         }
         
-        const userData = await extractProfileData(page, userId || searchQuery);
+        let userData;
+        if (searchType === 'id') {
+            userData = await extractProfileData(page, searchQuery);
+        } else {
+            userData = await extractUserFromSearch(page, searchQuery);
+        }
+        
         await browser.close();
         
         return {
@@ -143,7 +156,7 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
     }
 }
 
-async function extractProfileData(page, userId) {
+async function extractProfileData(page, searchQuery) {
     try {
         let html = await page.content().catch(() => '');
         console.log(`Page HTML length: ${html.length}`);
@@ -159,6 +172,7 @@ async function extractProfileData(page, userId) {
                 liked: '',
                 gender: '',
                 location: '',
+                redId: '',  // 小红书号
                 tags: []
             };
             
@@ -181,6 +195,7 @@ async function extractProfileData(page, userId) {
                                     data.followers = info.interaction_data?.follower_count || '';
                                     data.following = info.interaction_data?.following_count || '';
                                     data.liked = info.interaction_data?.liked_count || '';
+                                    data.redId = info.red_id || info.basic_info?.red_id || '';
                                 }
                             }
                         } catch (e) {}
@@ -198,6 +213,7 @@ async function extractProfileData(page, userId) {
                             data.nickname = state.author.nickname || '';
                             data.avatar = state.author.avatar || '';
                             data.userId = state.author.userId || '';
+                            data.redId = state.author.redId || '';
                         }
                     }
                 } catch (e) {}
@@ -235,17 +251,18 @@ async function extractProfileData(page, userId) {
                 if (parts[i].includes('粉丝') && i > 0) data.followers = parts[i-1];
                 if (parts[i].includes('关注') && i > 0) data.following = parts[i-1];
                 if (parts[i].includes('赞') && i > 0 && !data.liked) data.liked = parts[i-1];
+                if (parts[i].match(/^\d+$/) && parts[i+1] && parts[i+1].includes('红薯')) data.redId = parts[i];
             }
             
             return data;
         });
         
-        userData.userId = userId;
+        userData.userId = searchQuery;
         console.log(`Extracted data:`, JSON.stringify(userData));
         
         if (!userData.nickname && !userData.avatar) {
             return { 
-                userId: userId,
+                userId: searchQuery,
                 error: '未获取到用户信息，可能需要登录或Cookie已过期',
                 hint: '请确保Cookie有效且包含登录凭证'
             };
@@ -254,7 +271,67 @@ async function extractProfileData(page, userId) {
         return userData;
         
     } catch (error) {
-        return { error: error.message, userId: userId };
+        return { error: error.message, userId: searchQuery };
+    }
+}
+
+// Extract user from search results
+async function extractUserFromSearch(page, searchQuery) {
+    try {
+        const userData = await page.evaluate(() => {
+            const data = {
+                nickname: '',
+                userId: '',
+                avatar: '',
+                description: '',
+                followers: '',
+                following: '',
+                liked: '',
+                redId: '',
+                tags: []
+            };
+            
+            // Look for user cards in search results
+            const userCards = document.querySelectorAll('[class*="user-card"], [class*="author"], [class*="nickname"]');
+            
+            for (const card of userCards) {
+                // Try to find user info
+                const nicknameEl = card.querySelector('[class*="name"], [class*="nickname"], [class*="userName"]');
+                const avatarEl = card.querySelector('img');
+                const idEl = card.querySelector('[class*="id"], [class*="redId"]');
+                
+                if (nicknameEl) {
+                    data.nickname = nicknameEl.textContent?.trim() || '';
+                }
+                if (avatarEl) {
+                    data.avatar = avatarEl.src || avatarEl.dataset.src || '';
+                }
+                if (idEl) {
+                    data.redId = idEl.textContent?.trim() || '';
+                }
+                
+                if (data.nickname) break;
+            }
+            
+            // Alternative: look for first user result in search
+            if (!data.nickname) {
+                const firstResult = document.querySelector('[class*="feeds"] [class*="card"], [class*="search-user"]');
+                if (firstResult) {
+                    const nameEl = firstResult.querySelector('[class*="name"], h2, h3');
+                    if (nameEl) data.nickname = nameEl.textContent?.trim();
+                    const imgEl = firstResult.querySelector('img');
+                    if (imgEl) data.avatar = imgEl.src || '';
+                }
+            }
+            
+            return data;
+        });
+        
+        console.log(`Search result:`, JSON.stringify(userData));
+        return userData;
+        
+    } catch (error) {
+        return { error: error.message };
     }
 }
 
