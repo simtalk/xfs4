@@ -57,7 +57,7 @@ $router->get('/', function() {
 });
 
 // Set cookies
-$router->post('/api/cookies', function() use ($scraper, $saveCookiesHelper) {
+$router->post('/api/cookies', function() use ($scraper) {
     header('Content-Type: application/json; charset=utf-8');
     $input = json_decode(file_get_contents('php://input'), true);
     
@@ -98,7 +98,7 @@ $router->delete('/api/cookies', function() use ($scraper) {
 });
 
 // Search user by username
-$router->post('/api/search/username', function() use ($scraper, $getCookiesForSearch) {
+$router->post('/api/search/username', function() use ($scraper) {
     header('Content-Type: application/json; charset=utf-8');
     $input = json_decode(file_get_contents('php://input'), true);
     
@@ -109,7 +109,7 @@ $router->post('/api/search/username', function() use ($scraper, $getCookiesForSe
     }
     
     // Get saved cookies as raw string
-    $cookies = $getCookiesForSearch($scraper);
+    $cookies = getCookiesForSearch($scraper);
     
     // If no saved cookies, try to use provided cookies
     if (!$cookies && isset($input['cookies'])) {
@@ -127,7 +127,7 @@ $router->post('/api/search/username', function() use ($scraper, $getCookiesForSe
 });
 
 // Search user by ID
-$router->post('/api/search/id', function() use ($scraper, $getCookiesForSearch) {
+$router->post('/api/search/id', function() use ($scraper) {
     header('Content-Type: application/json; charset=utf-8');
     $input = json_decode(file_get_contents('php://input'), true);
     
@@ -138,7 +138,7 @@ $router->post('/api/search/id', function() use ($scraper, $getCookiesForSearch) 
     }
     
     // Get saved cookies as raw string
-    $cookies = $getCookiesForSearch($scraper);
+    $cookies = getCookiesForSearch($scraper);
     
     // If no saved cookies, try to use provided cookies
     if (!$cookies && isset($input['cookies'])) {
