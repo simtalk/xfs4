@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
     const browser = await chromium.launch({ 
-        headless: false,  // Use visible mode for debugging
+        headless: true,
         args: [
             '--disable-blink-features=AutomationControlled',
             '--disable-dev-shm-usage',
