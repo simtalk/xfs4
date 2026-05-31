@@ -108,21 +108,9 @@ $router->post('/api/search/username', function() use ($scraper) {
         return;
     }
     
-    // Get saved cookies as raw string
-    $cookies = getCookiesForSearch($scraper);
-    
-    // If no saved cookies, try to use provided cookies
-    if (!$cookies && isset($input['cookies'])) {
-        $cookies = $input['cookies'];
-    }
-    
-    if (!$cookies) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => '请先设置Cookie']);
-        return;
-    }
-    
-    $result = $scraper->searchUser($cookies, $input['username'], 'username');
+    // Use built-in cookie from scraper.js (通过搜索时不传cookie)
+    // 这里直接调用搜索，让scraper.js使用内置cookie
+    $result = $scraper->searchUser('', $input['username'], 'username');
     echo json_encode($result);
 });
 
@@ -137,21 +125,8 @@ $router->post('/api/search/id', function() use ($scraper) {
         return;
     }
     
-    // Get saved cookies as raw string
-    $cookies = getCookiesForSearch($scraper);
-    
-    // If no saved cookies, try to use provided cookies
-    if (!$cookies && isset($input['cookies'])) {
-        $cookies = $input['cookies'];
-    }
-    
-    if (!$cookies) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => '请先设置Cookie']);
-        return;
-    }
-    
-    $result = $scraper->searchUser($cookies, $input['userId'], 'id');
+    // Use built-in cookie from scraper.js
+    $result = $scraper->searchUser('', $input['userId'], 'id');
     echo json_encode($result);
 });
 

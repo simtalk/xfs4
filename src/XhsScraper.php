@@ -18,28 +18,19 @@ class XhsScraper
      */
     public function searchUser(string $cookies, string $query, string $type = 'username'): array
     {
-        if (empty($cookies)) {
-            return ['success' => false, 'error' => '请先输入Cookie'];
-        }
-        
-        // Determine if cookies is raw string or JSON
-        $cookies = trim($cookies);
-        if (strpos($cookies, '[') === 0) {
-            // It's JSON format - use as is
-            $decodedCookies = json_decode($cookies, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return ['success' => false, 'error' => 'Cookie格式错误，请检查JSON格式'];
-            }
-        } else {
-            // It's raw cookie string - use as is, scraper.js will parse it
-        }
-        
         // Validate search type
         $searchType = in_array($type, ['username', 'id']) ? $type : 'username';
         
         // Build command - pass cookies as file to avoid escaping issues
         $cookieFile = $this->dataPath . '/temp_cookies_' . uniqid() . '.txt';
-        file_put_contents($cookieFile, $cookies);
+        
+        // If cookies is USE_BUILT_IN, write empty file (scraper will use built-in)
+        // Otherwise write the cookies to file
+        if ($cookies === 'USE_BUILT_IN' || empty(trim($cookies))) {
+            file_put_contents($cookieFile, '');
+        } else {
+            file_put_contents($cookieFile, $cookies);
+        }
         
         $command = sprintf(
             'node %s %s %s %s 2>&1',

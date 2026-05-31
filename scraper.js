@@ -2,19 +2,30 @@ const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
-// Proxy configuration - UPDATE THESE VALUES
+// ============================================
+// 请在这里填写你的小红书Cookie
+// ============================================
+const BUILT_IN_COOKIE = 'gid=yjKD402fd4Wfyj24W2YdS2dDj2W91EYxEu6DvfuAqVyMIU28TE3CMd888qW428y8KDySWf0D; customerClientId=233169599715501; x-user-id-creator.xiaohongshu.com=5e91af5c00000000010002c2; a1=19d875ee8dfpm4nd9a6iosaehbc4jt5blzo4oeq2m50000399971; webId=470623b6d73fd91e53f2195440aefa14; abRequestId=470623b6d73fd91e53f2195440aefa14; ets=1780067153812; webBuild=6.13.7; customer-sso-sid=68c5176457192537115361327mfcuzjybaa4afl7; access-token-creator.xiaohongshu.com=customer.creator.AT-68c517645719253711536133pu4aq2zeduypa9j6; galaxy_creator_session_id=e2g1yT7o3obx5i9mqV8et5O3An6kTPzHvCaH; galaxy.creator.beaker.session.id=1780157735805065929011; xsecappid=xhs-pc-web; websectiga=82e85efc5500b609ac1166aaf086ff8aa4261153a448ef0be5b17417e4512f28; sec_poison_id=862bbd7f-c9d1-47c5-96d2-ece4cfb3a0cd; acw_tc=0a00d2a717802392684135727ebc18ba68d6682a83518bb0ad635f9c99c75d; loadts=1780239269620; web_session=040069b166876e56d597a30329384b23483a77; id_token=VjEAANYltQBtW1LnFG85gmO86xFVZIou++Yza5tJIajQ78MLPBJPvH4oQ4FPKnUxPfGEdFyac3ojFCyyLCrlDyEKxKBsnOXRgkXb3SfPnWpQ26NJKtOMziZKZaJPZuJdnSbaUAEZ; x-rednote-datactry=CN; x-rednote-holderctry=CN; unread={%22ub%22:%226a1b8ab5000000000803d479%22%2C%22ue%22:%226a0d40e4000000003501c572%22%2C%22uc%22:34}';
+
+// Proxy configuration
 const PROXY = {
-    host: process.env.PROXY_HOST || '',
-    port: process.env.PROXY_PORT || '',
-    username: process.env.PROXY_USER || '',
-    password: process.env.PROXY_PASS || ''
+    host: process.env.PROXY_HOST || '49.7.119.243',
+    port: process.env.PROXY_PORT || '2022',
+    username: process.env.PROXY_USER || 'xays31m1',
+    password: process.env.PROXY_PASS || 'mPvkAeQ6'
 };
 
 // Read cookies from file if path is passed as argument
 function parseCookiesArg(cookiesArg) {
-    // If the argument is a file path, read from file
+    // If the argument is a file path
     if (fs.existsSync(cookiesArg)) {
-        return fs.readFileSync(cookiesArg, 'utf-8');
+        const content = fs.readFileSync(cookiesArg, 'utf-8').trim();
+        // If file is empty, use built-in cookie
+        if (!content) {
+            console.log('Cookie file is empty, using built-in cookie');
+            return BUILT_IN_COOKIE;
+        }
+        return content;
     }
     return cookiesArg;
 }
@@ -239,16 +250,16 @@ async function extractProfileData(page, userId) {
 
 // Main entry point
 const args = process.argv.slice(2);
-if (args.length < 3) {
-    console.error('Usage: node scraper.js <cookies_json_or_file> <search_query> <search_type(id|username)>');
+if (args.length < 2) {
+    console.error('Usage: node scraper.js <cookies_or_file> <search_query> <search_type(id|username)>');
     process.exit(1);
 }
 
-// Parse cookies - could be raw string, JSON, or file path
 const cookiesArg = args[0];
-const cookiesJson = parseCookiesArg(cookiesArg);
 const searchQuery = args[1];
-const searchType = args[2];
+const searchType = args[2] || 'id';
+
+const cookiesJson = parseCookiesArg(cookiesArg);
 
 fetchUserData(cookiesJson, searchQuery, searchType)
     .then(result => {
