@@ -55,27 +55,24 @@ class XhsScraper
         }
         
         // Filter out debug logs, keep only JSON output
-        $lines = explode("\n", $output);
-        $jsonLines = [];
-        $inJson = false;
+        $output = trim($output);
         
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            // Skip empty lines and debug logs (lines that don't start with { or [)
-            if ($trimmed === '') continue;
-            if (preg_match('/^(Using|Error|Page|Fetching|Stealth|Navigating|Parsed|Extracted)/', $trimmed)) continue;
-            
-            // Check if this looks like JSON
-            if (strpos($trimmed, '{') === 0 || strpos($trimmed, '[') === 0) {
-                $jsonLines[] = $trimmed;
-                $inJson = true;
-            } elseif ($inJson) {
-                // Continue collecting JSON (might be multi-line due to escape sequences)
-                $jsonLines[] = $trimmed;
+        // If output contains multiple lines, find the JSON part
+        if (strpos($output, "\n") !== false || strpos($output, "\r") !== false) {
+            $lines = preg_split('/[\r\n]+/', $output);
+            foreach ($lines as $line) {
+                $line = trim($line);
+                // Skip debug logs
+                if (preg_match('/^(Using|Error|Page|Fetching|Stealth|Navigating|Parsed|Extracted|Cookie)/', $line)) {
+                    continue;
+                }
+                // Found JSON line
+                if (strpos($line, '{') === 0 || strpos($line, '[') === 0) {
+                    $output = $line;
+                    break;
+                }
             }
         }
-        
-        $output = implode("\n", $jsonLines);
         
         if (empty(trim($output))) {
             return ['success' => false, 'error' => '爬虫无有效输出'];
