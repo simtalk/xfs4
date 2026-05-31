@@ -3,11 +3,16 @@ const { chromium } = require('playwright');
 async function fetchUserData(cookiesJson, searchQuery, searchType) {
     const browser = await chromium.launch({ 
         headless: true,
-        args: ['--disable-blink-features=AutomationControlled']
+        args: [
+            '--disable-blink-features=AutomationControlled',
+            '--disable-dev-shm-usage',
+            '--no-sandbox'
+        ]
     });
     
     const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 }
     });
     
     try {
@@ -36,10 +41,8 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         // Determine URL based on search type
         let url;
         if (searchType === 'id') {
-            // Search by user ID
             url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
         } else {
-            // Search by username - try to find the user first
             url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
         }
         
@@ -48,34 +51,35 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         // Navigate with better error handling
         try {
             await page.goto(url, { 
-                waitUntil: 'domcontentloaded',
+                waitUntil: 'load',
                 timeout: 30000 
             });
             
-            // Wait for any redirects to complete
-            await page.waitForTimeout(3000);
+            // Wait for page to stabilize
+            await page.waitForTimeout(5000);
             
-            // Wait for main content to load
+            // Try to wait for any dynamic content
             try {
-                await page.waitForSelector('body', { timeout: 10000 });
-            } catch (e) {
-                // Continue anyway
-            }
+                await page.waitForFunction(() => {
+                    return document.querySelector('#detail-app') !== null || 
+                           document.querySelector('.user-detail') !== null ||
+                           document.querySelector('[data-v-sm]') !== null ||
+                           document.body.innerHTML.length > 10000;
+                }, { timeout: 10000 }).catch(() => {});
+            } catch (e) {}
             
         } catch (navError) {
             console.log(`Navigation error: ${navError.message}`);
         }
         
-        // Small delay to let page settle
-        await page.waitForTimeout(2000);
+        // Wait additional time for JS to render
+        await page.waitForTimeout(3000);
         
         let userData = {};
         
         if (searchType === 'id') {
-            // Extract user info from profile page
             userData = await extractProfileData(page, searchQuery);
         } else {
-            // For username search, look for user in search results
             userData = await extractFromSearchResults(page, searchQuery);
         }
         
@@ -97,13 +101,15 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
 
 async function extractProfileData(page, userId) {
     try {
-        // Get page content safely
+        // Check for page content
         let html = '';
         try {
             html = await page.content();
         } catch (e) {
             console.log('Could not get page content');
         }
+        
+        console.log(`Page HTML length: ${html.length}`);
         
         // Extract user information using JavaScript with better error handling
         const userData = await page.evaluate(() => {
@@ -120,12 +126,12 @@ async function extractProfileData(page, userId) {
                 tags: []
             };
             
-            // Try to find from __INITIAL_SSR_STATE__
+            // Method 1: Try __INITIAL_SSR_STATE__
             try {
                 const scripts = document.querySelectorAll('script');
                 for (const script of scripts) {
                     const text = script.textContent || '';
-                    if (text.includes('nickname') || text.includes('user_info')) {
+                    if (text.includes('nickname') || text.includes('user_info') || text.includes('UserPage')) {
                         try {
                             const match = text.match(/window\.__INITIAL_SSR_STATE__\s*=\s*(\{.*?\});/s);
                             if (match && match[1]) {
@@ -143,77 +149,167 @@ async function extractProfileData(page, userId) {
                                     data.location = info.location || '';
                                 }
                             }
-                        } catch (e) {
-                            // Continue to next script
-                        }
+                        } catch (e) {}
                     }
                 }
             } catch (e) {}
             
-            // Try DOM extraction as fallback
+            // Method 2: Try window.__INITIAL_STATE__
+            if (!data.nickname) {
+                try {
+                    const stateMatch = document.body.innerHTML.match(/window\.__INITIAL_STATE__\s*=\s*({.*?});/s);
+                    if (stateMatch && stateMatch[1]) {
+                        const state = JSON.parse(stateMatch[1]);
+                        if (state.author) {
+                            data.nickname = state.author.nickname || '';
+                            data.avatar = state.author.avatar || state.author.image || '';
+                            data.userId = state.author.userId || state.author.user_id || '';
+                        }
+                    }
+                } catch (e) {}
+            }
+            
+            // Method 3: Try data from script tags
+            if (!data.nickname) {
+                try {
+                    const allScripts = document.querySelectorAll('script[type="application/json"]');
+                    for (const script of allScripts) {
+                        try {
+                            const jsonData = JSON.parse(script.textContent);
+                            if (jsonData.nickname || jsonData.author?.nickname) {
+                                data.nickname = jsonData.nickname || jsonData.author?.nickname || '';
+                                data.avatar = jsonData.avatar || jsonData.author?.avatar || '';
+                                data.userId = jsonData.userId || jsonData.user_id || '';
+                                break;
+                            }
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+            }
+            
+            // Method 4: Try React component data
+            if (!data.nickname) {
+                const reactRoot = document.querySelector('#detail-app, [id*="app"], [data-v-sm]');
+                if (reactRoot) {
+                    // Check for data in parent elements
+                    let el = reactRoot;
+                    while (el && el !== document.body) {
+                        const parent = el.parentElement;
+                        if (parent) {
+                            const dataAttr = parent.getAttribute('data-props') || 
+                                           parent.getAttribute('data-state') ||
+                                           parent.getAttribute('data-init');
+                            if (dataAttr) {
+                                try {
+                                    const parsed = JSON.parse(dataAttr);
+                                    data.nickname = parsed.nickname || parsed.author?.nickname || '';
+                                    data.avatar = parsed.avatar || parsed.author?.avatar || '';
+                                    if (data.nickname) break;
+                                } catch (e) {}
+                            }
+                        }
+                        el = parent;
+                    }
+                }
+            }
+            
+            // Method 5: DOM selectors for rendered content
             if (!data.nickname) {
                 const nameSelectors = [
-                    '.user-nickname',
-                    '.name-wrapper .name',
+                    '.user-name',
+                    '.profile-user-name',
+                    '.author-name',
+                    '.nickname',
+                    'h1.title',
+                    '.user-info-name',
+                    '[class*="user-name"]',
+                    '[class*="author-name"]',
                     '[class*="nickname"]',
-                    'h1.user-name',
-                    '.profile-user-name'
+                    'div[class*="name"] span',
+                    '.info-name'
                 ];
                 
                 for (const selector of nameSelectors) {
-                    const el = document.querySelector(selector);
-                    if (el && el.textContent.trim()) {
-                        data.nickname = el.textContent.trim();
-                        break;
-                    }
+                    try {
+                        const el = document.querySelector(selector);
+                        if (el && el.textContent?.trim() && el.textContent.trim().length < 50) {
+                            const text = el.textContent.trim();
+                            if (!text.includes('{{') && !text.includes('undefined')) {
+                                data.nickname = text;
+                                break;
+                            }
+                        }
+                    } catch (e) {}
                 }
             }
             
+            // Method 6: Get avatar from various sources
             if (!data.avatar) {
                 const avatarSelectors = [
+                    'img[class*="avatar"]',
                     '.user-avatar img',
-                    '.avatar img',
-                    '[class*="avatar"] img',
-                    'img[class*="user"]'
+                    '.author-avatar img',
+                    '.profile-avatar img',
+                    'img[alt*="头像"]',
+                    '[class*="avatar"] img'
                 ];
                 
                 for (const selector of avatarSelectors) {
-                    const el = document.querySelector(selector);
-                    if (el && el.src) {
-                        data.avatar = el.src;
-                        break;
+                    try {
+                        const el = document.querySelector(selector);
+                        if (el && el.src && !el.src.includes('data:') && !el.src.includes('placeholder')) {
+                            data.avatar = el.src;
+                            break;
+                        }
+                    } catch (e) {}
+                }
+            }
+            
+            // Method 7: Get from meta tags
+            if (!data.avatar) {
+                const ogImage = document.querySelector('meta[property="og:image"]');
+                if (ogImage) {
+                    data.avatar = ogImage.content;
+                }
+            }
+            
+            // Method 8: Stats from DOM
+            const statsNodes = document.querySelectorAll('[class*="count"], [class*="num"], [class*="stat"]');
+            for (const node of statsNodes) {
+                const text = node.textContent?.trim() || '';
+                if (text && !text.includes('{{')) {
+                    if (text.includes('粉丝') && !data.followers) {
+                        data.followers = text.replace(/粉丝/g, '').trim();
+                    } else if (text.includes('关注') && !data.following) {
+                        data.following = text.replace(/关注/g, '').trim();
+                    } else if ((text.includes('获赞') || text.includes('点赞')) && !data.liked) {
+                        data.liked = text.replace(/获赞/g, '').replace(/点赞/g, '').trim();
                     }
                 }
             }
             
-            // Try to find stats
-            const statsSelectors = [
-                '[class*="follower"]',
-                '[class*="following"]',
-                '[class*="like"]',
-                '[class*="fans"]'
-            ];
-            
-            for (const selector of statsSelectors) {
-                const els = document.querySelectorAll(selector);
-                els.forEach(el => {
-                    const text = el.textContent || '';
-                    if (text.includes('粉丝') && !data.followers) {
-                        data.followers = text.replace(/[^0-9]/g, '') || el.querySelector('span')?.textContent || '';
-                    }
-                    if (text.includes('关注') && !data.following) {
-                        data.following = text.replace(/[^0-9]/g, '') || el.querySelector('span')?.textContent || '';
-                    }
-                    if (text.includes('赞') && !data.liked) {
-                        data.liked = text.replace(/[^0-9]/g, '') || el.querySelector('span')?.textContent || '';
-                    }
-                });
-            }
+            // Get numbers from specific spans
+            const numberSpans = document.querySelectorAll('span[class*="number"], span[class*="count"]');
+            numberSpans.forEach(span => {
+                const text = span.textContent?.trim() || '';
+                const parent = span.closest('[class*="stat"]') || span.parentElement;
+                const parentText = parent?.textContent?.trim() || '';
+                
+                if (parentText.includes('粉丝') && !data.followers) {
+                    data.followers = text;
+                } else if (parentText.includes('关注') && !data.following) {
+                    data.following = text;
+                } else if (parentText.includes('赞') && !data.liked) {
+                    data.liked = text;
+                }
+            });
             
             return data;
         });
         
         userData.userId = userId;
+        
+        console.log(`Extracted data:`, JSON.stringify(userData));
         
         // If still no data, return error message
         if (!userData.nickname && !userData.avatar) {
@@ -236,7 +332,6 @@ async function extractProfileData(page, userId) {
 
 async function extractFromSearchResults(page, username) {
     try {
-        // Wait for search results to load
         await page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
         
         const userData = await page.evaluate((searchName) => {
