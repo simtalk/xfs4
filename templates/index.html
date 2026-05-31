@@ -386,8 +386,16 @@
                 
                 document.getElementById('loading').style.display = 'none';
                 
-                if (result.success) {
-                    displayUser(result.data);
+                if (result.success && result.data) {
+                    const data = result.data;
+                    // Check if result is an array (multiple users) or single user
+                    if (Array.isArray(data)) {
+                        displayUsers(data);
+                    } else if (data.nickname || data.avatar || data.userId) {
+                        displayUser(data);
+                    } else {
+                        document.getElementById('userResult').innerHTML = '<div class="error">未找到用户</div>';
+                    }
                     showSearchStatus('success', '查询成功');
                 } else {
                     showSearchStatus('error', result.error || '查询失败');
@@ -446,6 +454,44 @@
                     ${user.description ? '<div class="user-description">' + escapeHtml(user.description) + '</div>' : ''}
                 </div>
             `;
+        }
+        
+        // Display multiple users
+        function displayUsers(users) {
+            const container = document.getElementById('userResult');
+            
+            if (!users || users.length === 0) {
+                container.innerHTML = '<div class="error">未找到用户</div>';
+                return;
+            }
+            
+            const usersHtml = users.map((user, index) => `
+                <div class="user-card" style="margin-bottom: 20px; cursor: pointer;" onclick="showUserDetail(${index})">
+                    <div class="user-header">
+                        ${user.avatar 
+                            ? '<img src="' + escapeHtml(user.avatar) + '" class="user-avatar" alt="头像" style="width:60px;height:60px;">' 
+                            : '<div class="user-avatar-placeholder" style="width:60px;height:60px;font-size:24px;">' + (user.nickname ? user.nickname[0] : '?') + '</div>'}
+                        <div class="user-info">
+                            <div class="user-nickname">${escapeHtml(user.nickname || '未知用户')}</div>
+                            <div class="user-id">${user.redId ? '小红书号: ' + escapeHtml(user.redId) : ''}</div>
+                        </div>
+                    </div>
+                    <div style="color:#666;font-size:12px;margin-top:10px;">点击查看详情</div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = '<div style="margin-bottom:15px;font-weight:bold;">搜索到 ' + users.length + ' 个用户：</div>' + usersHtml;
+            
+            // Store users for later use
+            window.searchResults = users;
+        }
+        
+        // Show single user detail
+        function showUserDetail(index) {
+            const user = window.searchResults[index];
+            if (user) {
+                displayUser(user);
+            }
         }
         
         function escapeHtml(text) {

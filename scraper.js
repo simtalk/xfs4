@@ -116,11 +116,15 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         const page = await context.newPage();
         
         let url;
-        if (searchType === 'id') {
-            // Direct profile URL by user ID
+        // Determine search type based on query format
+        const isNumericId = /^\d+$/.test(searchQuery);
+        const isUidFormat = /^[a-f0-9]{24,}$/i.test(searchQuery);
+        
+        if (isUidFormat) {
+            // Looks like a UID - direct profile access
             url = `https://www.xiaohongshu.com/user/profile/${searchQuery}`;
         } else {
-            // Search by 小红书号/username - use search page
+            // Treat as 小红书号 or keyword - use search page
             url = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(searchQuery)}&type=51`;
         }
         
@@ -134,10 +138,27 @@ async function fetchUserData(cookiesJson, searchQuery, searchType) {
         }
         
         let userData;
-        if (searchType === 'id') {
+        if (isUidFormat) {
             userData = await extractProfileData(page, searchQuery);
         } else {
-            userData = await extractUserFromSearch(page, searchQuery);
+            // For search results, get top 10 users
+            const results = await extractUsersFromSearch(page, searchQuery);
+            
+            // If looking for specific redId, filter to exact match
+            if (isNumericId && results.length > 0) {
+                const exactMatch = results.find(u => u.redId === searchQuery);
+                if (exactMatch) {
+                    // Get full profile for exact match
+                    const profileUrl = `https://www.xiaohongshu.com/user/profile/${exactMatch.userId}`;
+                    await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 });
+                    await page.waitForTimeout(2000);
+                    userData = await extractProfileData(page, exactMatch.userId);
+                } else {
+                    userData = results;
+                }
+            } else {
+                userData = results;
+            }
         }
         
         await browser.close();
@@ -275,64 +296,101 @@ async function extractProfileData(page, searchQuery) {
     }
 }
 
-// Extract user from search results
-async function extractUserFromSearch(page, searchQuery) {
+// Extract multiple users from search results (up to 10)
+async function extractUsersFromSearch(page, searchQuery) {
     try {
-        const userData = await page.evaluate(() => {
-            const data = {
-                nickname: '',
-                userId: '',
-                avatar: '',
-                description: '',
-                followers: '',
-                following: '',
-                liked: '',
-                redId: '',
-                tags: []
-            };
+        const users = await page.evaluate(() => {
+            const results = [];
             
-            // Look for user cards in search results
-            const userCards = document.querySelectorAll('[class*="user-card"], [class*="author"], [class*="nickname"]');
+            // Try to find user cards in search results
+            // Look for various selectors that might contain user info
+            const selectors = [
+                '[class*="user-card"]',
+                '[class*="author"]',
+                '[class*="search-user"]',
+                '[class*="feeds"] > div',
+                '.user-list .user-item'
+            ];
             
-            for (const card of userCards) {
-                // Try to find user info
-                const nicknameEl = card.querySelector('[class*="name"], [class*="nickname"], [class*="userName"]');
-                const avatarEl = card.querySelector('img');
-                const idEl = card.querySelector('[class*="id"], [class*="redId"]');
-                
-                if (nicknameEl) {
-                    data.nickname = nicknameEl.textContent?.trim() || '';
-                }
-                if (avatarEl) {
-                    data.avatar = avatarEl.src || avatarEl.dataset.src || '';
-                }
-                if (idEl) {
-                    data.redId = idEl.textContent?.trim() || '';
-                }
-                
-                if (data.nickname) break;
+            let userCards = [];
+            for (const sel of selectors) {
+                userCards = document.querySelectorAll(sel);
+                if (userCards.length > 0) break;
             }
             
-            // Alternative: look for first user result in search
-            if (!data.nickname) {
-                const firstResult = document.querySelector('[class*="feeds"] [class*="card"], [class*="search-user"]');
-                if (firstResult) {
-                    const nameEl = firstResult.querySelector('[class*="name"], h2, h3');
-                    if (nameEl) data.nickname = nameEl.textContent?.trim();
-                    const imgEl = firstResult.querySelector('img');
-                    if (imgEl) data.avatar = imgEl.src || '';
+            // Also try to extract from __INITIAL_STATE__ or scripts
+            const scripts = document.querySelectorAll('script');
+            let userDataFromScript = null;
+            
+            for (const script of scripts) {
+                const text = script.textContent || '';
+                if (text.includes('userId') || text.includes('nickname')) {
+                    // Try to find user data in script
+                    const match = text.match(/window\.__INITIAL_STATE__\s*=\s*(\{.*?\});/s);
+                    if (match) {
+                        try {
+                            const state = JSON.parse(match[1]);
+                            // Look for user notes in state
+                            if (state.noteList || state.feeds) {
+                                const items = state.noteList || state.feeds || [];
+                                for (const item of items.slice(0, 10)) {
+                                    const user = item.user || item.author;
+                                    if (user && user.nickname) {
+                                        results.push({
+                                            nickname: user.nickname || '',
+                                            userId: user.userId || user.id || '',
+                                            avatar: user.avatar || '',
+                                            redId: user.redId || ''
+                                        });
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                    }
                 }
             }
             
-            return data;
+            // If no results from scripts, try DOM extraction
+            if (results.length === 0) {
+                // Look for image+name patterns
+                const items = document.querySelectorAll('[class*="item"], [class*="card"]');
+                for (const item of items) {
+                    if (results.length >= 10) break;
+                    
+                    const img = item.querySelector('img');
+                    const name = item.querySelector('[class*="name"], [class*="nickname"], h3, h4');
+                    const link = item.querySelector('a[href*="/user/"]');
+                    
+                    if (img && name) {
+                        const href = link?.href || '';
+                        const userIdMatch = href.match(/\/user\/profile\/([a-f0-9]+)/i);
+                        
+                        results.push({
+                            nickname: name.textContent?.trim() || '',
+                            userId: userIdMatch ? userIdMatch[1] : '',
+                            avatar: img.src || img.dataset.src || '',
+                            redId: ''
+                        });
+                    }
+                }
+            }
+            
+            return results.slice(0, 10);
         });
         
-        console.log(`Search result:`, JSON.stringify(userData));
-        return userData;
+        console.log(`Found ${users.length} users in search results`);
+        return users;
         
     } catch (error) {
-        return { error: error.message };
+        console.log(`Search extraction error: ${error.message}`);
+        return [];
     }
+}
+
+// Extract single user from search results
+async function extractUserFromSearch(page, searchQuery) {
+    const users = await extractUsersFromSearch(page, searchQuery);
+    return users.length > 0 ? users[0] : { nickname: '', userId: '', avatar: '' };
 }
 
 // Main entry point
